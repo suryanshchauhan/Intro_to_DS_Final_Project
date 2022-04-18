@@ -1,0 +1,160 @@
+---
+title: "Final_Suryansh_CJ"
+output: html_document
+---
+
+\
+<span style="color:black">  
+The goal of the Project is to find the majors that have the best salaries. Should you do Engineering or Math or Economics or maybe Graphic Design? Choosing a college major is a big task. Students must choose a course of study that will challenge and fascinate them while balancing the harsh realities of the labor market and career prospects. A high starting income is essential for a stable middle-class future, and with rising student loan obligations, picking a major that pays well right away becomes even more appealing.
+\
+```{r}
+# Loading all the packages
+library(tidyverse)
+library(cluster)
+library(factoextra)
+
+#Loading the file 
+data <- read_csv('degrees-and-pay.csv', col_types = cols())
+
+head(data)
+sapply(data, class)
+
+#Changing names for easy access
+colnames(data) <- c('Subject','Starting_Median_Salary','Mid_Career_Median_Salary','Career_Percent_Growth',
+                  'Percentile_is_10','Percentile_is_25','Percentile_is_75','Percentile_is_90')
+
+majors = data['Subject']
+
+#Removing all the special characters
+salaries <- data %>%
+    select(-Subject) %>%
+    mutate_all(function(x) as.numeric(gsub("[\\$,]","",x))) %>%
+    mutate(Career_Percent_Growth = Career_Percent_Growth/100)
+
+data = bind_cols(majors,salaries)
+
+head(data)
+sapply(data,class)
+
+#basing our clusters
+data_for_kmeans <- data %>%
+    select(Starting_Median_Salary, Mid_Career_Median_Salary, Percentile_is_10, Percentile_is_90) %>%
+    scale()
+
+#Elbow Method
+set.seed(7)
+max_no_of_k <- 15
+wss <- sapply(1:max_no_of_k, function(k){kmeans(data_for_kmeans, k, nstart=25, iter.max = 15)$tot.withinss})
+
+clust = as.data.frame(wss)
+clust$k = 1:nrow(clust)
+
+fviz_nbclust(data_for_kmeans, kmeans, method = "wss")
+
+#Silhouette Method
+fviz_nbclust(data_for_kmeans, kmeans, method = "silhouette")
+
+#Gap-Stat Method
+set.seed(123)
+gap_stat <- clusGap(data_for_kmeans, FUN = kmeans, nstart = 25,
+                    K.max = 10, B = 50)
+fviz_gap_stat(gap_stat)
+
+#optimal no. of clusters as found is 3.
+num_clusters <- 3
+k_means <- kmeans(data_for_kmeans , num_clusters , iter.max = 15, nstart = 25)
+data$clust <- k_means[[1]]
+
+#Finding the relationship between Starting and Mid-Career Salaries  
+ggplot(data, aes(x=Starting_Median_Salary,y=Mid_Career_Median_Salary,color=factor(clust))) +
+    geom_point(alpha=4/5,size=6) +
+    scale_x_continuous(labels = scales::comma, limits=c(30000,110000)) +
+    scale_y_continuous(labels = scales::comma, limits=c(30000,110000)) +
+    xlab('Starting Median Earnings') +
+    ylab('Mid Career Median Earnings') +
+    coord_fixed() +
+    scale_color_manual(name="Clusters",values=c("#630729","#2D99AD", "#DBD816")) +
+    ggtitle('Starting vs. Mid Career Median Salaries - Clusters')
+
+```
+
+\
+<span style="color:black">  
+The majority of the data points are clustered in the upper left corner, with a reasonably linear connection. This means that your mid-career income will be higher if your starting income is higher. This is clearly supported by the three clusters, which give a degree of distinction. However, how may the clusters indicate mid-career development potential? 
+We'll need to restructure our data to see the wages of each college major and cluster sorted by mid-career percentiles in order to achieve this. We can examine the range of mid-career earning prospects for each cluster by graphing this.\
+
+
+
+```{r}
+#Clusters by Salary at Mid-Career in Percentile
+data_percentile <- data %>%
+    select(Subject, Percentile_is_10, Percentile_is_25, Mid_Career_Median_Salary,Percentile_is_75, Percentile_is_90, clust) %>%
+    gather(key=percentile, value=earnings, -c(Subject, clust))  
+
+data_percentile$percentile = factor(data_percentile$percentile,levels=c('Percentile_is_10', 'Percentile_is_25', 'Mid_Career_Median_Salary','Percentile_is_75', 'Percentile_is_90'))
+
+ggplot(data_percentile, aes(x=percentile,y=earnings, group=Subject, color=factor(clust))) +
+    geom_point() +
+    geom_line() +
+    facet_wrap(~ clust, scales = "free_x") +
+    ggtitle('Clusters by Mid Career Percentile') +
+    scale_color_manual(values=c("#630729","#2D99AD","#DBD816")) +
+    theme(legend.position="none",axis.text.x = element_text(size=10, angle=30))
+
+```
+
+\
+<span style="color:black">
+Engineering Majors: These are the majors to pick from if you seek financial stability. An engineering major may help you leverage your passion for math, physics, and building and constructing things into a successful job. Employers are continuously on the lookout for competent engineers, and the pay they give reflect how highly they value engineers. Engineers have the biggest potential for advancement in the 90th percentile and the best security in the 10th percentile.
+\
+
+
+```{r}
+#The Engineering Cluster
+ggplot(data_percentile[data_percentile$clust==1,], aes(x=percentile,y=earnings, group=Subject, color=Subject, order=earnings)) +
+    geom_point() +
+    geom_line() +
+    ggtitle('1st Cluster: Enginnering Majors') +
+    facet_wrap(~ clust) +
+    theme(axis.text.x = element_text(size=8, angle=30))
+```
+
+\
+<span style="color:black">
+Liberal Arts Majors: These majors start off rough with low starting income but you can definitely make your way up if you work hard! The median income for these majors is very low as compared to the other two clusters. If we notice closely, if you do insanely well in Drama, you could be making as much as 150k a year whereas majors like Spanish or Religion have a very steep curve.
+\
+
+
+```{r}
+#The Liberal Arts Cluster
+ggplot(data_percentile[data_percentile$clust==2,], aes(x=percentile,y=earnings, group=Subject, color=Subject)) +
+    geom_point() +
+    geom_line() +
+    ggtitle('2nd Cluster: The Liberal Arts Majors') +
+    facet_wrap(~ clust) +
+    theme(axis.text.x = element_text(size=8, angle=30))
+```
+
+\
+<span style="color:black">
+Basic Sciences and Econ: These majors are known for having a good salary and job security. Subjects like Accounting & Finance, Communications do good in the higher percentiles and can help you become financially stable. The starting salaries for these majors isn't very amazing but there's enough room for growth if you keep working in these fields. 
+\
+
+```{r}
+#The Basic Sciences and Econ Cluster
+ggplot(data_percentile[data_percentile$clust==3,], aes(x=percentile,y=earnings, group=Subject, color=Subject)) +
+    geom_point() +
+    geom_line() +
+    ggtitle('3rd Cluster: Basic Sciences and Econ') +
+    facet_wrap(~ clust) +
+    theme(axis.text.x = element_text(size=8, angle=30))
+```
+
+\
+<span style="color:black">
+Final Verdict: We can easily conclude that Engineering majors perform the best at 10 percentile, closely followed by Basic Math & Econ majors but as we go up in percentiles - Engineering majors clearly distinct themselves from the others in terms of salary. Therefore, Engineering is your best shot at having your dream salary. The Liberal Art majors, as we saw, don't have very impressive salaries but if you're a good student you can definitely make your way up in the tables. 
+But again, it does come down to how you much effort you put into your academics and other factors like networking, school reputation etc.
+\
+
+
+
